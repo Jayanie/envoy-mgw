@@ -9,16 +9,15 @@ import (
 	"errors"
 	"fmt"
 	"github.com/dgrijalva/jwt-go"
+	ext_authz "github.com/envoyproxy/go-control-plane/envoy/service/auth/v2"
 	envoy_type "github.com/envoyproxy/go-control-plane/envoy/type"
 	"github.com/gogo/googleapis/google/rpc"
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/genproto/googleapis/rpc/status"
 	"io/ioutil"
 	"strconv"
 	"strings"
 	"time"
-	ext_authz "github.com/envoyproxy/go-control-plane/envoy/service/auth/v2"
-	"google.golang.org/genproto/googleapis/rpc/status"
-
 )
 
 //JWT represents the JWT token found in the decrypted "Authorization" header.
@@ -81,20 +80,26 @@ type TokenData struct {
 	throttledOut           bool
 	serviceTime            int64
 	authorized             bool
+	apiContext 			   string
+	apiName 			   string
+	apiVersion 			   string
 }
+
 
 var Unknown = "__unknown__"
 
 
-var UnauthorizedError = errors.New("Invalid access token")
+var UnauthorizedError = errors.New("invalid access token")
 
 
 // handle JWT token
 func HandleJWT(validateSubscription bool, publicCert []byte, requestAttributes map[string]string) (bool, TokenData, error) {
 
 	accessToken := requestAttributes["authorization"]
-	//apiName := requestAttributes["api-name"]
-	//apiVersion := requestAttributes["api-version"]
+	apiName := requestAttributes["api-name"]
+	log.Println("API NAME:" ,apiName)
+	apiVersion := requestAttributes["api-version"]
+	log.Println("API NAME:" ,apiVersion)
 	//requestScope := requestAttributes["request-scope"]
 
 	tokenContent := strings.Split(accessToken, ".")
@@ -113,6 +118,7 @@ func HandleJWT(validateSubscription bool, publicCert []byte, requestAttributes m
 	}
 
 	jwtData, err := decodePayload(tokenContent[1])
+	log.Println(jwtData.Iat)
 	if jwtData == nil {
 		log.Errorf("Error in decoding the payload: %v", err)
 		return false, tokenData, UnauthorizedError
@@ -128,13 +134,13 @@ func HandleJWT(validateSubscription bool, publicCert []byte, requestAttributes m
 
 	if validateSubscription {
 
-		subscription := getSubscription(jwtData, "", "")
+		subscription := getSubscription(jwtData, apiName, apiVersion)
 
 		if (Subscription{}) == subscription {
-			return false, tokenData, errors.New("Resource forbidden")
+			return false, tokenData, errors.New("resource forbidden")
 		}
 
-		return true, getTokenDataForJWT(jwtData, "", ""), nil
+		return true, getTokenDataForJWT(jwtData, apiName, apiVersion), nil
 	}
 
 	return true, tokenData, nil
@@ -208,6 +214,7 @@ func getSubscription(jwtData *JWT, apiName string, apiVersion string) Subscripti
 
 	var sub Subscription
 	for _, api := range jwtData.SubscribedAPIs {
+		log.Println("API name:" ,api.Name)
 
 		if (strings.ToLower(apiName) == strings.ToLower(api.Name)) && apiVersion == api.Version {
 			sub.name = apiName
@@ -228,6 +235,7 @@ func getSubscription(jwtData *JWT, apiName string, apiVersion string) Subscripti
 func getTokenDataForJWT(jwtData *JWT, apiName string, apiVersion string) TokenData {
 
 	var token TokenData
+	// log.Println(jwtData.ConsumerKey)
 
 	token.authorized = true
 	token.meta_clientType = jwtData.Keytype
@@ -243,16 +251,21 @@ func getTokenDataForJWT(jwtData *JWT, apiName string, apiVersion string) TokenDa
 		token.apiCreatorTenantDomain = Unknown
 		token.apiTier = Unknown
 		token.userTenantDomain = Unknown
+		token.apiContext = Unknown
+		token.apiVersion = apiVersion
+		token.apiName = apiName
 	} else {
 		token.apiCreator = subscription.publisher
 		token.apiCreatorTenantDomain = subscription.subscriberTenantDomain
 		token.apiTier = subscription.subscriptionTier
 		token.userTenantDomain = subscription.subscriberTenantDomain
+		token.apiContext = subscription.context
+		token.apiVersion = subscription.version
+		token.apiName = subscription.name
 	}
 
 	token.username = jwtData.Sub
 	token.throttledOut = false
-
 	return token
 }
 
@@ -269,17 +282,18 @@ func ReadFile(fileName string) ([]byte, error) {
 }
 
 
-func ValidateToken(ctx context.Context, req *ext_authz.CheckRequest) (*ext_authz.CheckResponse, error) {
+func ValidateToken(ctx context.Context, req *ext_authz.CheckRequest) (*ext_authz.CheckResponse, error, TokenData) {
 
 	caCert,_ := ReadFile("./artifacts/server.pem")
 
 	var keys []string
 	auth := false
+	var tokenData TokenData
 	for k := range req.Attributes.Request.Http.Headers {
 		if k == "authorization" {
 			//h = true
 			//header := req.Attributes.Request.Http.Headers["authorization"]
-			auth, _, _ = HandleJWT(false, caCert,req.Attributes.Request.Http.Headers )
+			auth, tokenData, _ = HandleJWT(false, caCert,req.Attributes.Request.Http.Headers )
 			fmt.Println("JWT header detected" + k)
 		}
 		keys = append(keys, k)
@@ -311,5 +325,5 @@ func ValidateToken(ctx context.Context, req *ext_authz.CheckRequest) (*ext_authz
 		}
 	}
 
-	return resp, nil
+	return resp, nil, tokenData
 }

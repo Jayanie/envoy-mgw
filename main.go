@@ -18,11 +18,13 @@ type server struct {
 	mode string
 }
 
+
 func main() {
 	c := make(chan os.Signal)
 	signal.Notify(c, os.Interrupt)
 
 	go listen(":8081", &server{mode: "GATEWAY"})
+	// go listen2(":9806", &server{mode: "ANALYTICS"})
 
 	<-c
 }
@@ -34,12 +36,29 @@ func listen(address string, serverType *server) {
 	}
 	s := grpc.NewServer()
 	ext_authz.RegisterAuthorizationServer(s, serverType)
+	// analytics.RegisterAnalyticsSendServiceServer(s, serverType)
 	reflection.Register(s)
 	fmt.Printf("Starting %q reciver on %q\n", serverType.mode, address)
 	if err := s.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}
+
 }
+//func listen2(address string, serverType *server) {
+//	lis, err := net.Listen("tcp", address)
+//	if err != nil {
+//		log.Fatalf("failed to listen: %v", err)
+//	}
+//	s := grpc.NewServer()
+//	// ext_authz.RegisterAuthorizationServer(s, serverType)
+//	analytics.RegisterAnalyticsSendServiceServer(s, serverType)
+//	reflection.Register(s)
+//	fmt.Printf("Starting %q reciver on %q\n", serverType.mode, address)
+//	if err := s.Serve(lis); err != nil {
+//		log.Fatalf("failed to serve: %v", err)
+//	}
+//
+//}
 
 func (s *server) Check(ctx context.Context, req *ext_authz.CheckRequest) (*ext_authz.CheckResponse, error) {
 
@@ -54,8 +73,9 @@ func (s *server) Check(ctx context.Context, req *ext_authz.CheckRequest) (*ext_a
 	} else {
 		fmt.Println(js)
 	}
-	return controller.ExecuteFilters(ctx,req)
-    // Validate the token by calling the token filter.
+	// log.Println(ctx)
+	return controller.ExecuteFilters(ctx, req)
+    //// Validate the token by calling the token filter.
 	//resp , err := filters.ValidateToken(ctx, req)
 	//
 	////Return if the authentication failed
@@ -65,7 +85,19 @@ func (s *server) Check(ctx context.Context, req *ext_authz.CheckRequest) (*ext_a
 	////Continue to next filter
 	//
 	//// Publish metrics
-	//resp , err = filters.PublishMetrics(ctx, req)
+	//resp , err = filters.PublishMetrics(req)
 	//
 	//return resp, err
 }
+
+//
+//func (s *server) SendAnalytics(analyticsServer analytics.AnalyticsSendService_SendAnalyticsServer) error {
+//	log.Println("Received analytics")
+//	a , err := analyticsServer.Recv()
+//	if err != nil {
+//		fmt.Println(err)
+//	}
+//	log.Println(a)
+//
+//	return nil
+//}

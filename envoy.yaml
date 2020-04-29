@@ -30,14 +30,30 @@ static_resources:
                 route:
                   host_rewrite: www.google.com
                   cluster: service_google
+          access_log:
+            name: envoy.file_access_log
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.access_loggers.file.v3.FileAccessLog
+              path: /dev/stdout
+              json_format:
+                protocol: "%PROTOCOL%"
+                cluster:  "%UPSTREAM_CLUSTER%"
+                startTime:  "%START_TIME%"
+                duration: "%RESPONSE_TX_DURATION%"
+                response_code: "%RESPONSE_CODE%"
+                upstream_serviceTime: "%RESP(X-ENVOY-UPSTREAM-SERVICE-TIME)%"
+                upstream_host: "%UPSTREAM_HOST%"
+                path: "%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%"
+                bytes_received: "%BYTES_RECEIVED%"
+                request_duration: "%REQUEST_DURATION%"
           http_filters:
+          - name: envoy.grpc_web
           - name: envoy.ext_authz
             typed_config:
               "@type": type.googleapis.com/envoy.config.filter.http.ext_authz.v2.ExtAuthz
               grpc_service:
                 envoy_grpc:
                   cluster_name: ext-authz
-
                 # Default is 200ms; override if your server needs e.g. warmup time.
                 timeout: 10s
 #              include_peer_certificate: false
@@ -80,6 +96,29 @@ static_resources:
     # This timeout controls the initial TCP handshake timeout - not the timeout for the
     # entire request.
     connect_timeout: 0.25s
+
+  - name: analytics
+    connect_timeout: 1s
+    type: static
+    lb_policy: round_robin
+    load_assignment:
+      cluster_name: analytics
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: 172.17.0.1
+                port_value: 9806
+
+stats_sinks:
+  name: envoy.stat_sinks.statsd
+  config:
+    address:
+      socket_address:
+        address: 127.0.0.1
+        port_value: 8125
+
 #  - name: zipkin
 #    connect_timeout: 1s
 #    type: strict_dns
@@ -93,11 +132,4 @@ static_resources:
 #              socket_address:
 #                address: 172.17.0.1
 #                port_value: 9411
-stats_sinks:
-  name: envoy.stat_sinks.statsd
-  config:
-    address:
-      socket_address:
-        address: 127.0.0.1
-        port_value: 8125
 
