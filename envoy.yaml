@@ -47,7 +47,7 @@ static_resources:
                 bytes_received: "%BYTES_RECEIVED%"
                 request_duration: "%REQUEST_DURATION%"
           http_filters:
-          - name: envoy.grpc_web
+#          - name: envoy.grpc_web
           - name: envoy.ext_authz
             typed_config:
               "@type": type.googleapis.com/envoy.config.filter.http.ext_authz.v2.ExtAuthz
@@ -57,6 +57,33 @@ static_resources:
                 # Default is 200ms; override if your server needs e.g. warmup time.
                 timeout: 10s
 #              include_peer_certificate: false
+          - name: envoy.filters.http.lua
+            typed_config:
+              "@type": type.googleapis.com/envoy.config.filter.http.lua.v2.Lua
+              inline_code: |
+                function envoy_on_response(response_handle)
+                  body_size = response_handle:body():length()
+                  response_handle:headers():add("response-body-size", tostring(body_size))
+                  response_handle:headers():add("upstream_foo", "foo")
+                end
+          - name: envoy.filters.http.tap
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.tap.v3.Tap
+              common_config:
+                static_config:
+                  match_config:
+                    http_response_headers_match:
+                      headers:
+                        - name: upstream_foo
+                          exact_match: foo
+                  output_config:
+#                    streaming: true
+                    sinks:
+                      - format: JSON_BODY_AS_STRING
+                        file_per_tap:
+                          path_prefix: /taps/any
+          - name: envoy.cors
+            typed_config: {}
           - name: envoy.router
             config: {}
   clusters:

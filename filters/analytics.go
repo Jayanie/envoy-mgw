@@ -3,6 +3,7 @@ package filters
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	analytics "envoy-test-filter/pb"
 	ext_authz "github.com/envoyproxy/go-control-plane/envoy/service/auth/v2"
 	"github.com/gogo/googleapis/google/rpc"
@@ -112,7 +113,6 @@ const (
 )
 
 func PublishAnalyticsFromJwt(ctx context.Context, req *ext_authz.CheckRequest, tokenData TokenData) (*ext_authz.CheckResponse, error){
-
 	data.MessageStreamName = "InComingRequestStream"
 	data.MetaClientType = tokenData.meta_clientType
 	data.ApplicationConsumerKey = tokenData.applicationConsumerKey
@@ -161,7 +161,7 @@ func PublishAnalyticsFromJwt(ctx context.Context, req *ext_authz.CheckRequest, t
 	data2.ThrottledOut = tokenData.throttledOut
 	data2.ServiceTime = tokenData.serviceTime
 	data2.ApiContext = tokenData.apiContext
-	data2.ApiName = "PizzaShackAPI"
+	data2.ApiName = "PetStoreAPI"
 	data2.ApiVersion = "1.0.0"
 	data2.ApiResourcePath = req.Attributes.Request.Http.Path
 	data2.Protocol = req.Attributes.Request.Http.Protocol
@@ -177,12 +177,21 @@ func PublishAnalyticsFromJwt(ctx context.Context, req *ext_authz.CheckRequest, t
 	data2.ErrorCode = ""
 	data2.ErrorMessage = ""
 
-	config := &tls.Config{
-		InsecureSkipVerify: true,
+	pemServerCA,_ := ReadFile("./artifacts/wso2carbon.pem")
+
+	certPool := x509.NewCertPool()
+	if !certPool.AppendCertsFromPEM(pemServerCA) {
+		log.Fatalf("did not Append the certificate")
 	}
 
-
+	//clientCert , _ := tls.LoadX509KeyPair("./artifacts/wso2carbon-cert.pem", "./artifacts/wso2carbon-key.pem")
+	config := &tls.Config{
+		InsecureSkipVerify: false,
+		//Certificates: []tls.Certificate{clientCert},
+		RootCAs: certPool,
+	}
 	conn, err := grpc.Dial(address, grpc.WithTransportCredentials(credentials.NewTLS(config)),grpc.WithBlock())
+
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}

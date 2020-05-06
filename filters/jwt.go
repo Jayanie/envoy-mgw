@@ -295,6 +295,8 @@ func ValidateToken(ctx context.Context, req *ext_authz.CheckRequest) (*ext_authz
 			//header := req.Attributes.Request.Http.Headers["authorization"]
 			auth, tokenData, _ = HandleJWT(false, caCert,req.Attributes.Request.Http.Headers )
 			fmt.Println("JWT header detected" + k)
+			ctx.Value(tokenData)
+			log.Println(ctx)
 		}
 		keys = append(keys, k)
 	}
